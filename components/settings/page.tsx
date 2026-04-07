@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSession, signOut, authClient } from "@/lib/auth-client";
+import { forceRevokeOtherSessions } from "./actions";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTheme } from "next-themes";
@@ -11,7 +12,6 @@ import {
     faMoon,
     faArrowLeft,
     faUser,
-    faShieldHalved,
     faPalette,
     faTrash,
     faCamera,
@@ -21,13 +21,11 @@ import {
     faCheck,
     faXmark,
     faTriangleExclamation,
-    faLock,
     faEnvelope,
     faPen,
 } from "@fortawesome/free-solid-svg-icons";
-import { faGithub, faGoogle } from "@fortawesome/free-brands-svg-icons";
 
-type SettingsTab = "profile" | "appearance" | "security" | "danger";
+type SettingsTab = "profile" | "appearance" | "danger";
 
 const Spinner = ({ className = "h-4 w-4" }: { className?: string }) => (
     <svg className={`animate-spin ${className}`} viewBox="0 0 24 24">
@@ -50,12 +48,6 @@ export default function SettingsPage() {
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-
-    // Password state
-    const [currentPassword, setCurrentPassword] = useState("");
-    const [newPassword, setNewPassword] = useState("");
-    const [confirmPassword, setConfirmPassword] = useState("");
-    const [passwordSaving, setPasswordSaving] = useState(false);
 
     // Delete account
     const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -92,6 +84,36 @@ export default function SettingsPage() {
         router.push("/auth");
     };
 
+    const handleLogoutAll = async () => {
+        try {
+            if (!session?.user?.id || !session?.session?.token) {
+                setError("Unable to identify current session.");
+                return;
+            }
+
+            // Execute raw server action DB wipe directly on Postgres
+            const result = await forceRevokeOtherSessions(session.user.id, session.session.token);
+            if (!result.success) {
+                console.error("Custom Wipe Error:", result.error);
+                setError(result.error || "Failed to sign out everywhere.");
+                // We still want to let them sign out locally if it failed
+                await signOut().catch(() => {});
+                router.push("/auth");
+                return;
+            }
+            
+            // Critical fail-safe so user isn't stuck logged in if an unexpected code error happens
+            await signOut().catch(() => {});
+            router.push("/auth");
+        } catch (err: any) {
+            console.error("Exception in handleLogoutAll:", err);
+            setError(err?.message || "Failed to sign out everywhere.");
+            
+            await signOut().catch(() => {});
+            router.push("/auth");
+        }
+    };
+
     const handleUpdateName = async () => {
         if (!name.trim() || name === session?.user?.name) return;
         setSaving(true);
@@ -103,33 +125,6 @@ export default function SettingsPage() {
             setError("Failed to update name.");
         }
         setSaving(false);
-    };
-
-    const handleChangePassword = async () => {
-        if (!currentPassword || !newPassword) return;
-        if (newPassword !== confirmPassword) {
-            setError("Passwords do not match.");
-            return;
-        }
-        if (newPassword.length < 8) {
-            setError("Password must be at least 8 characters.");
-            return;
-        }
-        setPasswordSaving(true);
-        setError(null);
-        try {
-            await authClient.changePassword({
-                currentPassword,
-                newPassword,
-            });
-            setSuccess("Password changed successfully.");
-            setCurrentPassword("");
-            setNewPassword("");
-            setConfirmPassword("");
-        } catch {
-            setError("Failed to change password. Check your current password.");
-        }
-        setPasswordSaving(false);
     };
 
     const handleDeleteAccount = async () => {
@@ -145,7 +140,6 @@ export default function SettingsPage() {
     const tabs: { key: SettingsTab; label: string; icon: any }[] = [
         { key: "profile", label: "Profile", icon: faUser },
         { key: "appearance", label: "Appearance", icon: faPalette },
-        { key: "security", label: "Security", icon: faShieldHalved },
         { key: "danger", label: "Danger Zone", icon: faTrash },
     ];
 
@@ -320,7 +314,7 @@ export default function SettingsPage() {
                             </div>
 
                             {/* Email (read-only) */}
-                            <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6 mb-6">
+                            <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6">
                                 <h3 className="text-[14px] font-bold text-[var(--text-primary)] mb-4">Email Address</h3>
                                 <div className="relative">
                                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-dimmed)]">
@@ -334,37 +328,6 @@ export default function SettingsPage() {
                                     />
                                 </div>
                                 <p className="text-[11px] text-[var(--text-dimmed)] mt-2">Email cannot be changed. It is linked to your authentication provider.</p>
-                            </div>
-
-                            {/* Connected Accounts */}
-                            <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6">
-                                <h3 className="text-[14px] font-bold text-[var(--text-primary)] mb-4">Connected Accounts</h3>
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between p-4 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-9 h-9 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-secondary)] flex items-center justify-center">
-                                                <FontAwesomeIcon icon={faGithub} className="w-4 h-4 text-[var(--text-primary)]" />
-                                            </div>
-                                            <div>
-                                                <div className="text-[13px] font-semibold text-[var(--text-primary)]">GitHub</div>
-                                                <div className="text-[11px] text-[var(--text-dimmed)]">Sign in with your GitHub account</div>
-                                            </div>
-                                        </div>
-                                        <span className="text-[11px] font-bold text-[var(--text-dimmed)] bg-[var(--bg-primary)] px-3 py-1 rounded-full border border-[var(--border-secondary)]">Available</span>
-                                    </div>
-                                    <div className="flex items-center justify-between p-4 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-9 h-9 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-secondary)] flex items-center justify-center">
-                                                <FontAwesomeIcon icon={faGoogle} className="w-4 h-4 text-[var(--text-primary)]" />
-                                            </div>
-                                            <div>
-                                                <div className="text-[13px] font-semibold text-[var(--text-primary)]">Google</div>
-                                                <div className="text-[11px] text-[var(--text-dimmed)]">Sign in with your Google account</div>
-                                            </div>
-                                        </div>
-                                        <span className="text-[11px] font-bold text-[var(--text-dimmed)] bg-[var(--bg-primary)] px-3 py-1 rounded-full border border-[var(--border-secondary)]">Available</span>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     )}
@@ -446,96 +409,6 @@ export default function SettingsPage() {
                         </div>
                     )}
 
-                    {/* ═══ SECURITY ═══ */}
-                    {activeTab === "security" && (
-                        <div>
-                            <div className="mb-8">
-                                <h1 className="text-[24px] font-bold text-[var(--text-primary)] tracking-tight">Security</h1>
-                                <p className="text-[13px] text-[var(--text-muted)] mt-1">Manage your password and security settings</p>
-                            </div>
-
-                            {/* Change Password */}
-                            <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6 mb-6">
-                                <h3 className="text-[14px] font-bold text-[var(--text-primary)] mb-2">Change Password</h3>
-                                <p className="text-[12px] text-[var(--text-muted)] mb-5">Update your password to keep your account secure</p>
-
-                                <div className="space-y-4 max-w-[400px]">
-                                    <div>
-                                        <label className="text-[12px] font-medium text-[var(--text-muted)] mb-1.5 block">Current Password</label>
-                                        <div className="relative">
-                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-dimmed)]">
-                                                <FontAwesomeIcon icon={faLock} className="w-[12px] h-[12px]" />
-                                            </div>
-                                            <input
-                                                type="password"
-                                                value={currentPassword}
-                                                onChange={e => setCurrentPassword(e.target.value)}
-                                                className="w-full h-[42px] bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg pl-10 pr-4 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-                                                placeholder="Enter current password"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-[12px] font-medium text-[var(--text-muted)] mb-1.5 block">New Password</label>
-                                        <div className="relative">
-                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-dimmed)]">
-                                                <FontAwesomeIcon icon={faLock} className="w-[12px] h-[12px]" />
-                                            </div>
-                                            <input
-                                                type="password"
-                                                value={newPassword}
-                                                onChange={e => setNewPassword(e.target.value)}
-                                                className="w-full h-[42px] bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg pl-10 pr-4 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-                                                placeholder="At least 8 characters"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-[12px] font-medium text-[var(--text-muted)] mb-1.5 block">Confirm New Password</label>
-                                        <div className="relative">
-                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-dimmed)]">
-                                                <FontAwesomeIcon icon={faLock} className="w-[12px] h-[12px]" />
-                                            </div>
-                                            <input
-                                                type="password"
-                                                value={confirmPassword}
-                                                onChange={e => setConfirmPassword(e.target.value)}
-                                                className="w-full h-[42px] bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg pl-10 pr-4 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-                                                placeholder="Confirm new password"
-                                            />
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={handleChangePassword}
-                                        disabled={passwordSaving || !currentPassword || !newPassword || !confirmPassword}
-                                        className="h-[42px] px-6 bg-[var(--accent)] text-white text-[13px] font-bold rounded-lg hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                    >
-                                        {passwordSaving ? <Spinner /> : "Update Password"}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Active Sessions */}
-                            <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6">
-                                <h3 className="text-[14px] font-bold text-[var(--text-primary)] mb-2">Active Sessions</h3>
-                                <p className="text-[12px] text-[var(--text-muted)] mb-5">Manage devices where you're currently signed in</p>
-
-                                <div className="p-4 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-9 h-9 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center justify-center">
-                                            <div className="w-2 h-2 rounded-full bg-green-400" />
-                                        </div>
-                                        <div>
-                                            <div className="text-[13px] font-semibold text-[var(--text-primary)]">Current Session</div>
-                                            <div className="text-[11px] text-[var(--text-dimmed)]">This browser — Active now</div>
-                                        </div>
-                                    </div>
-                                    <span className="text-[10px] font-bold text-green-400 bg-green-500/10 px-2.5 py-1 rounded-full border border-green-500/20">ACTIVE</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     {/* ═══ DANGER ZONE ═══ */}
                     {activeTab === "danger" && (
                         <div>
@@ -552,7 +425,7 @@ export default function SettingsPage() {
                                         <p className="text-[12px] text-[var(--text-muted)]">Sign out of all sessions across all devices. You will need to sign in again.</p>
                                     </div>
                                     <button
-                                        onClick={handleLogout}
+                                        onClick={handleLogoutAll}
                                         className="flex-shrink-0 ml-4 px-5 py-2.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-[12px] font-bold rounded-lg hover:bg-yellow-500/20 transition-colors"
                                     >
                                         Sign Out All
