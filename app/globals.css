@@ -1,0 +1,145 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Dark theme (default) ── */
+:root {
+  --bg-primary: #020617;
+  --bg-secondary: #0f172a;
+  --bg-tertiary: #0b1120;
+  --bg-card: rgba(15, 23, 42, 0.6);
+  --bg-header: rgba(2, 6, 23, 0.8);
+  --border-primary: #1e3a8a;
+  --border-secondary: rgba(30, 58, 138, 0.4);
+  --border-accent: #1e40af;
+  --text-primary: #ffffff;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-dimmed: #64748b;
+  --text-code: #f1f5f9;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --grid-line: rgba(30, 58, 138, 0.1);
+  --glow-radial: rgba(59, 130, 246, 0.12);
+  --glow-blur: rgba(59, 130, 246, 0.2);
+  --shadow-card: 0px 4px 30px 0px rgba(0, 0, 0, 0.1);
+  --shadow-heavy: 0px 25px 50px -12px rgba(30, 58, 138, 0.2);
+  --dot-bg: #0f172a;
+  --icon-badge-bg: rgba(30, 58, 138, 0.2);
+  --icon-badge-border: rgba(30, 64, 175, 0.5);
+  --icon-box-bg: rgba(30, 58, 138, 0.3);
+  --tag-bg: rgba(59, 130, 246, 0.15);
+  --tag-border: rgba(59, 130, 246, 0.3);
+  --passed-bg: rgba(34, 197, 94, 0.15);
+  --passed-border: rgba(34, 197, 94, 0.3);
+  --search-bg: rgba(15, 23, 42, 0.8);
+  --search-shadow: 0px 10px 15px -3px rgba(30, 58, 138, 0.1), 0px 4px 6px -4px rgba(30, 58, 138, 0.1);
+  --btn-secondary-bg: #0f172a;
+  --footer-muted: #475569;
+  --scrollbar-track: #0f172a;
+  --scrollbar-thumb: #1e3a8a;
+  --code-key: #60a5fa;
+  --code-value: #93c5fd;
+  --code-text: #f1f5f9;
+  --code-bool: #f472b6;
+  --code-bg: #0b1120;
+  --terminal-output: #94a3b8;
+  --terminal-cmd: #cbd5e1;
+  --terminal-label: #64748b;
+  --terminal-dot-red: rgba(239, 68, 68, 0.8);
+  --terminal-dot-yellow: rgba(234, 179, 8, 0.8);
+  --terminal-dot-green: rgba(34, 197, 94, 0.8);
+}
+
+/* ── Light theme ── */
+[data-theme="light"] {
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-tertiary: #e8edf4;
+  --bg-card: rgba(255, 255, 255, 0.8);
+  --bg-header: rgba(248, 250, 252, 0.9);
+  --border-primary: #cbd5e1;
+  --border-secondary: rgba(203, 213, 225, 0.6);
+  --border-accent: #93c5fd;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-dimmed: #94a3b8;
+  --text-code: #334155;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --grid-line: rgba(59, 130, 246, 0.05);
+  --glow-radial: rgba(59, 130, 246, 0.05);
+  --glow-blur: rgba(59, 130, 246, 0.08);
+  --shadow-card: 0px 4px 30px 0px rgba(0, 0, 0, 0.04);
+  --shadow-heavy: 0px 25px 50px -12px rgba(0, 0, 0, 0.08);
+  --dot-bg: #ffffff;
+  --icon-badge-bg: rgba(59, 130, 246, 0.08);
+  --icon-badge-border: rgba(59, 130, 246, 0.2);
+  --icon-box-bg: rgba(59, 130, 246, 0.08);
+  --tag-bg: rgba(59, 130, 246, 0.08);
+  --tag-border: rgba(59, 130, 246, 0.2);
+  --passed-bg: rgba(34, 197, 94, 0.08);
+  --passed-border: rgba(34, 197, 94, 0.2);
+  --search-bg: rgba(255, 255, 255, 0.9);
+  --search-shadow: 0px 4px 12px rgba(0, 0, 0, 0.06);
+  --btn-secondary-bg: #ffffff;
+  --footer-muted: #94a3b8;
+  --scrollbar-track: #f1f5f9;
+  --scrollbar-thumb: #cbd5e1;
+  --code-key: #2563eb;
+  --code-value: #1d4ed8;
+  --code-text: #334155;
+  --code-bool: #db2777;
+  --code-bg: #f1f5f9;
+  --terminal-output: #64748b;
+  --terminal-cmd: #334155;
+  --terminal-label: #94a3b8;
+  --terminal-dot-red: rgba(239, 68, 68, 0.6);
+  --terminal-dot-yellow: rgba(234, 179, 8, 0.6);
+  --terminal-dot-green: rgba(34, 197, 94, 0.6);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Terminal cursor blink */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Light theme SVG icon inversion */
+[data-theme="light"] img[src$=".svg"] {
+  filter: brightness(0.3);
+}
+
