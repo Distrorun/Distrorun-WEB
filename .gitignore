@@ -2,3 +2,4 @@
 node_modules
 *.pen
 .next
+minio-data/

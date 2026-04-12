@@ -177,7 +177,6 @@ export default function SettingsPage() {
                         <FontAwesomeIcon icon={faArrowLeft} className="w-4 h-4" />
                     </Link>
                     <div className="flex items-center gap-2.5">
-                        <FontAwesomeIcon icon={faGear} className="w-5 h-5 text-[var(--accent)]" />
                         <span className="font-bold text-[18px] tracking-tight">Settings</span>
                     </div>
 

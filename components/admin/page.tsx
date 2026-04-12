@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession, authClient, signOut } from "@/lib/auth-client";
+import { getIcon, ICON_MAP } from "@/lib/icons";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTheme } from "next-themes";
@@ -31,13 +32,19 @@ import {
     faArrowDown,
     faUserShield,
     faEye,
+    faEyeSlash,
     faCalendarDays,
     faFilter,
     faDownload,
     faRefresh,
+    faHeartPulse,
+    faServer,
+    faDatabase,
+    faBook,
+    faRobot,
+    faHardDrive,
 } from "@fortawesome/free-solid-svg-icons";
 
-// --- Types ---
 interface User {
     id: string;
     name: string;
@@ -48,7 +55,24 @@ interface User {
     createdAt: string;
 }
 
-type AdminTab = "overview" | "users" | "registry" | "settings";
+interface RegistryPackage {
+    id: number;
+    name: string;
+    description: string;
+    user_id: string;
+    user_name: string;
+    tags: string[];
+    downloads: number;
+    latest_version: number;
+    hidden: boolean;
+    official: boolean;
+    icon: string | null;
+    icon_color: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+type AdminTab = "overview" | "users" | "registry" | "settings" | "health";
 type UserSortKey = "name" | "email" | "createdAt" | "role";
 type UserSortDir = "asc" | "desc";
 
@@ -96,9 +120,52 @@ export default function AdminPage() {
     const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "user" | "banned">("all");
     const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
     const [userActionMenu, setUserActionMenu] = useState<string | null>(null);
-    const [confirmDialog, setConfirmDialog] = useState<{ userId: string; action: string; message: string } | null>(null);
+    const [registries, setRegistries] = useState<RegistryPackage[]>([]);
+    const [loadingRegistries, setLoadingRegistries] = useState(true);
+    const [registryActionMenu, setRegistryActionMenu] = useState<string | null>(null);
+    const [confirmDialog, setConfirmDialog] = useState<{ userId?: string; registryName?: string; action: string; message: string } | null>(null);
+    const [showPublishDialog, setShowPublishDialog] = useState(false);
+    const [publishData, setPublishData] = useState({
+        name: "",
+        description: "",
+        baseDistro: "alpine",
+        icon: "cube",
+        iconColor: "#3b82f6",
+        yamlContent: ""
+    });
+    const [publishTags, setPublishTags] = useState<string[]>([]);
+    const [publishTagInput, setPublishTagInput] = useState("");
+    const [publishIconPickerOpen, setPublishIconPickerOpen] = useState(false);
+    const [publishIconSearch, setPublishIconSearch] = useState("");
     const menuRef = useRef<HTMLDivElement>(null);
     const actionMenuRef = useRef<HTMLDivElement>(null);
+    const publishIconPickerRef = useRef<HTMLDivElement>(null);
+
+    const [healthStatus, setHealthStatus] = useState<{ rag: string; docs: string; db: string; minio: string } | null>(null);
+    const [loadingHealth, setLoadingHealth] = useState(false);
+
+    // Fetch health status
+    const fetchHealth = useCallback(async (isPolling = false) => {
+        if (!isPolling) setLoadingHealth(true);
+        try {
+            const res = await fetch("/api/health");
+            if (res.ok) {
+                const data = await res.json();
+                setHealthStatus(data.statuses);
+            }
+        } catch {
+            setHealthStatus(null);
+        }
+        if (!isPolling) setLoadingHealth(false);
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === "health") {
+            fetchHealth(false);
+            const interval = setInterval(() => fetchHealth(true), 5000);
+            return () => clearInterval(interval);
+        }
+    }, [activeTab, fetchHealth]);
 
     useEffect(() => { setMounted(true); }, []);
 
@@ -113,6 +180,7 @@ export default function AdminPage() {
         const handleClickOutside = (e: MouseEvent) => {
             if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
             if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) setUserActionMenu(null);
+            if (publishIconPickerRef.current && !publishIconPickerRef.current.contains(e.target as Node)) setPublishIconPickerOpen(false);
         };
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -127,7 +195,7 @@ export default function AdminPage() {
         setLoadingUsers(true);
         try {
             const res = await authClient.admin.listUsers({ query: { limit: 100 } });
-            if (res.data) setUsers(res.data.users as User[]);
+            if (res.data) setUsers(res.data.users as unknown as User[]);
         } catch {
             setError("Failed to load users.");
         }
@@ -183,6 +251,112 @@ export default function AdminPage() {
         setActionLoading(null);
         setConfirmDialog(null);
     };
+
+    const handlePublishOS = async () => {
+        if (!publishData.name || !publishData.yamlContent) {
+            setError("Name and YAML content are required.");
+            return;
+        }
+
+        setActionLoading("publish");
+        try {
+            const res = await fetch("/api/admin/registry/publish", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    ...publishData,
+                    tags: publishTags,
+                    packages: [],
+                    services: [],
+                    sbomEnabled: true
+                }),
+            });
+
+            if (res.ok) {
+                setSuccess(`Official OS "${publishData.name}" published!`);
+                setShowPublishDialog(false);
+                setPublishData({ name: "", description: "", baseDistro: "alpine", icon: "cube", iconColor: "#3b82f6", yamlContent: "" });
+                setPublishTags([]);
+                setPublishTagInput("");
+                setPublishIconPickerOpen(false);
+                setPublishIconSearch("");
+                await fetchRegistries();
+            } else {
+                const data = await res.json();
+                setError(data.error || "Failed to publish OS.");
+            }
+        } catch { setError("Failed to publish OS."); }
+        setActionLoading(null);
+    };
+
+    const handlePublishAddTag = () => {
+        const tag = publishTagInput.trim();
+        if (tag && !publishTags.includes(tag)) {
+            setPublishTags([...publishTags, tag]);
+            setPublishTagInput("");
+        }
+    };
+
+    const handlePublishRemoveTag = (tag: string) => {
+        setPublishTags(publishTags.filter(t => t !== tag));
+    };
+
+    const handlePublishTagKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Enter") { e.preventDefault(); handlePublishAddTag(); }
+    };
+
+    const filteredPublishIcons = publishIconSearch
+        ? Object.keys(ICON_MAP).filter(k => k.includes(publishIconSearch.toLowerCase()))
+        : Object.keys(ICON_MAP);
+
+    const fetchRegistries = useCallback(async () => {
+        setLoadingRegistries(true);
+        try {
+            const res = await fetch("/api/admin/registry");
+            if (res.ok) {
+                const data = await res.json();
+                setRegistries(data.packages);
+            }
+        } catch { setError("Failed to load registries."); }
+        setLoadingRegistries(false);
+    }, []);
+
+    const handleToggleVisibility = async (name: string, hidden: boolean) => {
+        setActionLoading(name);
+        try {
+            const res = await fetch(`/api/admin/registry/${name}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ hidden }),
+            });
+            if (res.ok) {
+                setSuccess(`OS "${name}" is now ${hidden ? "hidden" : "visible"}.`);
+                await fetchRegistries();
+            }
+        } catch { setError("Failed to update visibility."); }
+        setActionLoading(null);
+        setRegistryActionMenu(null);
+    };
+
+    const handleDeleteRegistry = async (name: string) => {
+        setActionLoading(name);
+        try {
+            const res = await fetch(`/api/admin/registry/${name}`, { method: "DELETE" });
+            if (res.ok) {
+                setSuccess(`OS "${name}" deleted.`);
+                await fetchRegistries();
+            }
+        } catch { setError("Failed to delete registry."); }
+        setActionLoading(null);
+        setConfirmDialog(null);
+    };
+
+    useEffect(() => {
+        if (session && isAdmin) {
+            if (activeTab === "users") fetchUsers();
+            if (activeTab === "registry") fetchRegistries();
+        }
+    }, [session, isAdmin, activeTab, fetchUsers, fetchRegistries]);
 
     const handleBulkBan = async () => {
         for (const uid of selectedUsers) {
@@ -265,6 +439,7 @@ export default function AdminPage() {
         { key: "overview", label: "Overview", icon: faChartLine },
         { key: "users", label: "Users", icon: faUsers },
         { key: "registry", label: "Registry", icon: faCubes },
+        { key: "health", label: "Health", icon: faHeartPulse },
         { key: "settings", label: "Settings", icon: faGear },
     ];
 
@@ -320,7 +495,6 @@ export default function AdminPage() {
                         <FontAwesomeIcon icon={faArrowLeft} className="w-4 h-4" />
                     </Link>
                     <div className="flex items-center gap-2.5">
-                        <FontAwesomeIcon icon={faShieldHalved} className="w-5 h-5 text-[var(--accent)]" />
                         <span className="font-bold text-[18px] tracking-tight">Admin</span>
                     </div>
 
@@ -392,7 +566,8 @@ export default function AdminPage() {
                             </button>
                             <button
                                 onClick={() => {
-                                    if (confirmDialog.action === "delete") handleRemove(confirmDialog.userId);
+                                    if (confirmDialog.action === "delete") handleRemove(confirmDialog.userId!);
+                                    else if (confirmDialog.action === "delete-registry") handleDeleteRegistry(confirmDialog.registryName!);
                                     else if (confirmDialog.action === "bulk-delete") handleBulkDelete();
                                     else if (confirmDialog.action === "bulk-ban") { handleBulkBan(); setConfirmDialog(null); }
                                 }}
@@ -415,7 +590,7 @@ export default function AdminPage() {
                             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[13px] font-medium transition-all ${activeTab === tab.key
                                 ? "bg-[var(--accent)]/15 text-[var(--accent)] border border-[var(--accent)]/20"
                                 : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] border border-transparent"
-                            }`}
+                                }`}
                         >
                             <FontAwesomeIcon icon={tab.icon} className="w-4 h-4" />
                             {tab.label}
@@ -424,9 +599,7 @@ export default function AdminPage() {
 
                     <div className="mt-auto pt-4 border-t border-[var(--border-secondary)]">
                         <div className="px-4 py-2">
-                            <div className="text-[10px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider mb-1">System</div>
-                            <div className="text-[11px] text-[var(--text-muted)]">{totalUsers} users registered</div>
-                            <div className="text-[11px] text-[var(--text-muted)]">{adminCount} admin{adminCount !== 1 ? "s" : ""}</div>
+                            <div className="text-[10px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider mb-1">Distrorun</div>
                         </div>
                     </div>
                 </aside>
@@ -603,7 +776,7 @@ export default function AdminPage() {
                                             className={`px-3 py-1.5 text-[11px] font-bold rounded-md transition-colors ${roleFilter === f
                                                 ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
                                                 : "text-[var(--text-dimmed)] hover:text-[var(--text-muted)]"
-                                            }`}
+                                                }`}
                                         >
                                             {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}{f === "all" ? ` (${totalUsers})` : f === "admin" ? ` (${adminCount})` : f === "banned" ? ` (${bannedCount})` : ` (${totalUsers - adminCount})`}
                                         </button>
@@ -741,23 +914,137 @@ export default function AdminPage() {
                                     <h1 className="text-[24px] font-bold text-[var(--text-primary)] tracking-tight">Registry Management</h1>
                                     <p className="text-[13px] text-[var(--text-muted)] mt-1">Manage published configurations and templates</p>
                                 </div>
+                                <div className="flex items-center gap-3">
+                                    <button onClick={() => setShowPublishDialog(true)} className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] border border-[var(--accent)] rounded-lg text-[12px] font-bold text-white hover:opacity-90 transition-opacity">
+                                        <FontAwesomeIcon icon={faUserPlus} className="w-3 h-3" /> Publish Official OS
+                                    </button>
+                                    <button onClick={fetchRegistries} className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg text-[12px] font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-accent)] transition-colors">
+                                        <FontAwesomeIcon icon={faRefresh} className="w-3 h-3" /> Refresh
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-3 gap-4 mb-8">
-                                <StatCard value="4" label="Published Configs" icon={faCubes} color="var(--accent)" />
-                                <StatCard value="2" label="Official" icon={faCircleCheck} color="#34d399" />
-                                <StatCard value="2" label="Community" icon={faUsers} color="#a78bfa" />
+                                <StatCard value={registries.length} label="Total OS" icon={faCubes} color="var(--accent)" />
+                                <StatCard value={registries.filter(r => !r.hidden).length} label="Visible" icon={faCircleCheck} color="#34d399" />
+                                <StatCard value={registries.filter(r => r.hidden).length} label="Hidden" icon={faEye} color="#f87171" />
                             </div>
 
-                            <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-8 text-center">
-                                <FontAwesomeIcon icon={faCubes} className="w-10 h-10 text-[var(--text-dimmed)] mb-4" />
-                                <h3 className="text-[16px] font-bold text-[var(--text-primary)] mb-2">Registry Moderation</h3>
-                                <p className="text-[13px] text-[var(--text-muted)] max-w-[400px] mx-auto mb-6">
-                                    Review, approve, and manage community-submitted configurations. Moderate tags, verify builds, and control what appears in the public registry.
-                                </p>
-                                <span className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--accent)]/10 border border-[var(--accent)]/20 text-[var(--accent)] text-[12px] font-bold rounded-full">
-                                    <FontAwesomeIcon icon={faClock} className="w-3 h-3" /> Coming Soon
-                                </span>
+                            <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl overflow-hidden">
+                                {/* Table Header */}
+                                <div className="grid grid-cols-[1fr_120px_100px_100px_120px_80px] gap-4 items-center px-5 py-3 border-b border-[var(--border-secondary)] bg-[var(--bg-secondary)]/30">
+                                    <span className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider">OS</span>
+                                    <span className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider">Author</span>
+                                    <span className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider text-center">Downloads</span>
+                                    <span className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider text-center">Status</span>
+                                    <span className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider text-center">Created</span>
+                                    <span className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider text-right">Actions</span>
+                                </div>
+
+                                {loadingRegistries ? (
+                                    <div className="flex items-center justify-center py-16 text-[var(--text-muted)]"><Spinner className="h-4 w-4 mr-2" /> Loading registries...</div>
+                                ) : registries.length === 0 ? (
+                                    <div className="text-center py-16">
+                                        <FontAwesomeIcon icon={faCubes} className="w-8 h-8 text-[var(--text-dimmed)] mb-3" />
+                                        <p className="text-[var(--text-muted)] text-[13px]">No OS found in registry.</p>
+                                    </div>
+                                ) : (
+                                    <div className="divide-y divide-[var(--border-secondary)]">
+                                        {registries.map(pkg => (
+                                            <div key={pkg.id} className="grid grid-cols-[1fr_120px_100px_100px_120px_80px] gap-4 items-center px-5 py-3.5 hover:bg-[var(--bg-secondary)]/30 transition-colors">
+                                                {/* Package Name & Icon */}
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[14px] flex-shrink-0" style={{ backgroundColor: `${pkg.icon_color || 'var(--accent)'}20`, color: pkg.icon_color || 'var(--accent)' }}>
+                                                        <FontAwesomeIcon icon={getIcon(pkg.icon)} className="w-4 h-4" />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <span className="text-[13px] font-bold text-[var(--text-primary)] truncate block">{pkg.name}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[10px] text-[var(--text-dimmed)]">v{pkg.latest_version}</span>
+                                                            {pkg.official && (
+                                                                <span className="text-[9px] font-extrabold bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full border border-green-500/30 tracking-tighter">OFFICIAL</span>
+                                                            )}
+                                                            <div className="flex gap-1">
+                                                                {pkg.tags.slice(0, 2).map(tag => (
+                                                                    <span key={tag} className="text-[8px] px-1.5 py-0.5 bg-[var(--bg-secondary)] text-[var(--text-dimmed)] rounded-full border border-[var(--border-secondary)] uppercase">{tag}</span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Author */}
+                                                <div className="min-w-0">
+                                                    {pkg.official ? (
+                                                        <div className="flex items-center gap-1.5 text-[12px] text-green-400 font-bold">
+                                                            <FontAwesomeIcon icon={faShieldHalved} className="w-2.5 h-2.5" />
+                                                            <span className="truncate">Staff</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-[12px] text-[var(--text-muted)] truncate">{pkg.user_name}</span>
+                                                    )}
+                                                </div>
+
+                                                {/* Downloads */}
+                                                <div className="text-center">
+                                                    <span className="text-[12px] font-medium text-[var(--text-primary)]">{pkg.downloads}</span>
+                                                </div>
+
+                                                {/* Status */}
+                                                <div className="flex justify-center">
+                                                    {pkg.hidden ? (
+                                                        <span className="text-[9px] font-bold bg-yellow-500/15 text-yellow-400 px-2 py-0.5 rounded-full border border-yellow-500/30">HIDDEN</span>
+                                                    ) : (
+                                                        <span className="text-[9px] font-bold bg-green-500/15 text-green-400 px-2 py-0.5 rounded-full border border-green-500/30">VISIBLE</span>
+                                                    )}
+                                                </div>
+
+                                                {/* Created At */}
+                                                <div className="text-center">
+                                                    <span className="text-[11px] text-[var(--text-dimmed)]">{formatDate(pkg.created_at)}</span>
+                                                </div>
+
+                                                {/* Actions */}
+                                                <div className="flex items-center justify-end relative" ref={registryActionMenu === pkg.name ? actionMenuRef : null}>
+                                                    {actionLoading === pkg.name ? (
+                                                        <Spinner className="h-4 w-4" />
+                                                    ) : (
+                                                        <>
+                                                            <button
+                                                                onClick={() => setRegistryActionMenu(registryActionMenu === pkg.name ? null : pkg.name)}
+                                                                className="w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-dimmed)] hover:text-[var(--text-primary)] hover:border-[var(--border-accent)] transition-colors"
+                                                            >
+                                                                <FontAwesomeIcon icon={faEllipsisVertical} className="w-3 h-3" />
+                                                            </button>
+                                                            {registryActionMenu === pkg.name && (
+                                                                <div className="absolute right-0 top-10 w-[180px] bg-[var(--bg-card)] border border-[var(--border-secondary)] rounded-xl shadow-[var(--shadow-card)] overflow-hidden z-30 backdrop-blur-xl">
+                                                                    <button
+                                                                        onClick={() => handleToggleVisibility(pkg.name, !pkg.hidden)}
+                                                                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                                                                    >
+                                                                        <FontAwesomeIcon icon={pkg.hidden ? faEye : faEyeSlash} className="w-3 h-3" />
+                                                                        {pkg.hidden ? "Show in Registry" : "Hide from Registry"}
+                                                                    </button>
+                                                                    <div className="h-[1px] bg-[var(--border-secondary)]" />
+                                                                    <button
+                                                                        onClick={() => { setRegistryActionMenu(null); setConfirmDialog({ registryName: pkg.name, action: "delete-registry", message: `Permanently delete registry OS "${pkg.name}"? This cannot be undone.` }); }}
+                                                                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] text-red-400 hover:bg-red-500/10 transition-colors"
+                                                                    >
+                                                                        <FontAwesomeIcon icon={faTrash} className="w-3 h-3" />
+                                                                        Delete OS
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="px-5 py-3 border-t border-[var(--border-secondary)] bg-[var(--bg-secondary)]/10 flex items-center justify-between">
+                                    <span className="text-[11px] text-[var(--text-dimmed)]">Showing {registries.length} OS</span>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -875,8 +1162,329 @@ export default function AdminPage() {
                             </div>
                         </div>
                     )}
+
+                    {/* ═══ HEALTH TAB ═══ */}
+                    {activeTab === "health" && (
+                        <div>
+                            <div className="flex items-center justify-between mb-8">
+                                <div>
+                                    <h1 className="text-[24px] font-bold text-[var(--text-primary)] tracking-tight">System Health</h1>
+                                    <p className="text-[13px] text-[var(--text-muted)] mt-1">Real-time status of connected services</p>
+                                </div>
+                                <button onClick={() => fetchHealth(false)} disabled={loadingHealth} className="w-9 h-9 rounded-xl border border-[var(--border-secondary)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-all">
+                                    <FontAwesomeIcon icon={faRefresh} className={`w-[14px] h-[14px] ${loadingHealth ? "animate-spin" : ""}`} />
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {/* Database Card */}
+                                <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6 relative overflow-hidden group hover:border-blue-500/30 transition-colors">
+                                    <div className="flex items-start justify-between mb-6">
+                                        <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                                            <FontAwesomeIcon icon={faDatabase} className="w-5 h-5 text-blue-400" />
+                                        </div>
+                                        <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${healthStatus?.db === 'up' ? 'bg-green-500/10 text-green-400 border-green-500/20' : healthStatus?.db === 'down' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-[var(--bg-secondary)] text-[var(--text-muted)] border-[var(--border-secondary)]'}`}>
+                                            {loadingHealth ? "Checking" : healthStatus?.db || "Unknown"}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">Database</h3>
+                                        <p className="text-[13px] text-[var(--text-dimmed)]">PostgreSQL Core</p>
+                                    </div>
+                                    <div className={`absolute bottom-0 left-0 h-1 w-full transition-colors ${healthStatus?.db === 'up' ? 'bg-green-400' : healthStatus?.db === 'down' ? 'bg-red-400' : 'bg-[var(--border-secondary)]'}`} />
+                                </div>
+
+                                {/* MinIO Card */}
+                                <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6 relative overflow-hidden group hover:border-cyan-500/30 transition-colors">
+                                    <div className="flex items-start justify-between mb-6">
+                                        <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+                                            <FontAwesomeIcon icon={faHardDrive} className="w-5 h-5 text-cyan-400" />
+                                        </div>
+                                        <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${healthStatus?.minio === 'up' ? 'bg-green-500/10 text-green-400 border-green-500/20' : healthStatus?.minio === 'down' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-[var(--bg-secondary)] text-[var(--text-muted)] border-[var(--border-secondary)]'}`}>
+                                            {loadingHealth ? "Checking" : healthStatus?.minio || "Unknown"}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">MinIO</h3>
+                                        <p className="text-[13px] text-[var(--text-dimmed)]">Object Storage</p>
+                                    </div>
+                                    <div className={`absolute bottom-0 left-0 h-1 w-full transition-colors ${healthStatus?.minio === 'up' ? 'bg-cyan-400' : healthStatus?.minio === 'down' ? 'bg-red-400' : 'bg-[var(--border-secondary)]'}`} />
+                                </div>
+
+                                {/* RAG Server Card */}
+                                <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6 relative overflow-hidden group hover:border-purple-500/30 transition-colors">
+                                    <div className="flex items-start justify-between mb-6">
+                                        <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+                                            <FontAwesomeIcon icon={faRobot} className="w-5 h-5 text-purple-400" />
+                                        </div>
+                                        <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${healthStatus?.rag === 'up' ? 'bg-green-500/10 text-green-400 border-green-500/20' : healthStatus?.rag === 'down' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-[var(--bg-secondary)] text-[var(--text-muted)] border-[var(--border-secondary)]'}`}>
+                                            {loadingHealth ? "Checking" : healthStatus?.rag || "Unknown"}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">RAG Service</h3>
+                                        <p className="text-[13px] text-[var(--text-dimmed)]">Ollama LLM Engine</p>
+                                    </div>
+                                    <div className={`absolute bottom-0 left-0 h-1 w-full transition-colors ${healthStatus?.rag === 'up' ? 'bg-green-400' : healthStatus?.rag === 'down' ? 'bg-red-400' : 'bg-[var(--border-secondary)]'}`} />
+                                </div>
+
+                                {/* Documentation Server Card */}
+                                <div className="bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-secondary)] rounded-2xl p-6 relative overflow-hidden group hover:border-orange-500/30 transition-colors">
+                                    <div className="flex items-start justify-between mb-6">
+                                        <div className="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+                                            <FontAwesomeIcon icon={faBook} className="w-5 h-5 text-orange-400" />
+                                        </div>
+                                        <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${healthStatus?.docs === 'up' ? 'bg-green-500/10 text-green-400 border-green-500/20' : healthStatus?.docs === 'down' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-[var(--bg-secondary)] text-[var(--text-muted)] border-[var(--border-secondary)]'}`}>
+                                            {loadingHealth ? "Checking" : healthStatus?.docs || "Unknown"}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">Docs Server</h3>
+                                        <p className="text-[13px] text-[var(--text-dimmed)]">Documentation Portal</p>
+                                    </div>
+                                    <div className={`absolute bottom-0 left-0 h-1 w-full transition-colors ${healthStatus?.docs === 'up' ? 'bg-green-400' : healthStatus?.docs === 'down' ? 'bg-red-400' : 'bg-[var(--border-secondary)]'}`} />
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </main>
             </div>
+
+            {/* ═══ PUBLISH OS DIALOG ═══ */}
+            {showPublishDialog && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowPublishDialog(false)} />
+                    <div className="relative w-full max-w-[720px] bg-[var(--bg-card)] border border-[var(--border-secondary)] rounded-2xl shadow-[var(--shadow-heavy)] overflow-hidden backdrop-blur-xl">
+                        {/* Header */}
+                        <div className="px-6 py-5 border-b border-[var(--border-secondary)] flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/15 border border-[var(--accent)]/20 flex items-center justify-center">
+                                <FontAwesomeIcon icon={faCubes} className="w-4 h-4 text-[var(--accent)]" />
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="text-[16px] font-bold text-[var(--text-primary)]">Publish Official OS</h3>
+                                <p className="text-[11px] text-[var(--text-dimmed)] mt-0.5">Create a new official OS configuration for the registry</p>
+                            </div>
+                            <button onClick={() => setShowPublishDialog(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-dimmed)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors">
+                                <FontAwesomeIcon icon={faXmark} className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto max-h-[70vh] space-y-6">
+                            {/* Live Preview Card */}
+                            <div className="bg-[var(--bg-secondary)]/50 border border-[var(--border-secondary)] rounded-xl p-4">
+                                <div className="text-[10px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider mb-3">Preview</div>
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-secondary)] flex items-center justify-center flex-shrink-0">
+                                        <FontAwesomeIcon icon={getIcon(publishData.icon)} className="w-5 h-5" style={{ color: publishData.iconColor || 'var(--accent)' }} />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[14px] font-bold text-[var(--text-primary)] truncate">{publishData.name || "OS Name"}</span>
+                                            <span className="text-[9px] font-bold bg-[var(--accent)]/15 text-[var(--accent)] px-1.5 py-0.5 rounded-full flex-shrink-0">OFFICIAL</span>
+                                        </div>
+                                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">{publishData.description || "OS description will appear here..."}</p>
+                                        {publishTags.length > 0 && (
+                                            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                                                {publishTags.slice(0, 4).map(tag => (
+                                                    <span key={tag} className="text-[9px] font-medium bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-dimmed)] px-1.5 py-0.5 rounded-md">{tag}</span>
+                                                ))}
+                                                {publishTags.length > 4 && <span className="text-[9px] text-[var(--text-dimmed)]">+{publishTags.length - 4}</span>}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="text-[10px] text-[var(--text-dimmed)] flex-shrink-0">{publishData.baseDistro}</div>
+                                </div>
+                            </div>
+
+                            {/* Name & Base Distro */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider">OS Name *</label>
+                                    <input
+                                        type="text"
+                                        value={publishData.name}
+                                        onChange={e => setPublishData({ ...publishData, name: e.target.value })}
+                                        className="w-full h-10 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl px-3.5 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                                        placeholder="e.g. NodeOS"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider">Base Distro</label>
+                                    <select
+                                        value={publishData.baseDistro}
+                                        onChange={e => setPublishData({ ...publishData, baseDistro: e.target.value })}
+                                        className="w-full h-10 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl px-3.5 text-[13px] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                                    >
+                                        <option value="alpine">Alpine</option>
+                                        <option value="fedora">Fedora</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Description */}
+                            <div className="space-y-2">
+                                <label className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider">Description</label>
+                                <textarea
+                                    value={publishData.description}
+                                    onChange={e => setPublishData({ ...publishData, description: e.target.value })}
+                                    className="w-full h-20 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl p-3.5 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] resize-none transition-colors"
+                                    placeholder="Describe what this OS is for..."
+                                />
+                            </div>
+
+                            {/* Icon & Color */}
+                            <div className="bg-[var(--bg-secondary)]/30 border border-[var(--border-secondary)] rounded-xl p-4 space-y-4" ref={publishIconPickerRef}>
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider">Icon & Color</label>
+                                    <button
+                                        onClick={() => setPublishIconPickerOpen(!publishIconPickerOpen)}
+                                        className="text-[11px] font-medium text-[var(--accent)] hover:underline"
+                                    >
+                                        {publishIconPickerOpen ? "Close picker" : "Browse icons"}
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center gap-4">
+                                    <div className="w-14 h-14 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-secondary)] flex items-center justify-center">
+                                        <FontAwesomeIcon icon={getIcon(publishData.icon)} className="w-6 h-6" style={{ color: publishData.iconColor || 'var(--accent)' }} />
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-[12px] font-medium text-[var(--text-primary)]">{publishData.icon}</p>
+                                        <p className="text-[10px] text-[var(--text-dimmed)] mt-0.5 font-mono">{publishData.iconColor}</p>
+                                    </div>
+                                </div>
+
+                                {/* Color Presets */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        {[
+                                            "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
+                                            "#ec4899", "#ef4444", "#f97316", "#f59e0b",
+                                            "#eab308", "#22c55e", "#10b981", "#14b8a6",
+                                            "#06b6d4", "#0ea5e9", "#64748b", "#ffffff",
+                                        ].map(color => (
+                                            <button
+                                                key={color}
+                                                onClick={() => setPublishData({ ...publishData, iconColor: color })}
+                                                className={`w-7 h-7 rounded-lg transition-transform hover:scale-110 ${publishData.iconColor === color ? 'ring-2 ring-offset-2 ring-[var(--text-primary)] ring-offset-[var(--bg-card)]' : ''}`}
+                                                style={{ backgroundColor: color }}
+                                                title={color}
+                                            />
+                                        ))}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="color"
+                                            value={publishData.iconColor}
+                                            onChange={e => setPublishData({ ...publishData, iconColor: e.target.value })}
+                                            className="w-8 h-8 rounded-lg border border-[var(--border-secondary)] cursor-pointer bg-transparent"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={publishData.iconColor}
+                                            onChange={e => setPublishData({ ...publishData, iconColor: e.target.value })}
+                                            placeholder="#3b82f6"
+                                            className="flex-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg px-3 py-1.5 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors font-mono"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Icon Grid */}
+                                {publishIconPickerOpen && (
+                                    <div className="space-y-3 pt-2 border-t border-[var(--border-secondary)]">
+                                        <input
+                                            value={publishIconSearch}
+                                            onChange={e => setPublishIconSearch(e.target.value)}
+                                            placeholder="Search icons..."
+                                            className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                                        />
+                                        <div className="grid grid-cols-8 gap-1.5 max-h-[180px] overflow-y-auto">
+                                            {filteredPublishIcons.map(name => (
+                                                <button
+                                                    key={name}
+                                                    onClick={() => { setPublishData({ ...publishData, icon: name }); setPublishIconPickerOpen(false); setPublishIconSearch(""); }}
+                                                    className={`w-full aspect-square rounded-lg flex items-center justify-center transition-colors ${publishData.icon === name ? 'text-white' : 'bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:bg-[var(--bg-secondary)]/80'}`}
+                                                    style={publishData.icon === name ? { backgroundColor: publishData.iconColor || 'var(--accent)' } : undefined}
+                                                    title={name}
+                                                >
+                                                    <FontAwesomeIcon icon={ICON_MAP[name]} className="w-4 h-4" />
+                                                </button>
+                                            ))}
+                                            {filteredPublishIcons.length === 0 && (
+                                                <p className="col-span-8 text-center text-[11px] text-[var(--text-dimmed)] py-4">No icons found</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Tags */}
+                            <div className="space-y-2">
+                                <label className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider">Tags</label>
+                                {publishTags.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                        {publishTags.map(tag => (
+                                            <span key={tag} className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--accent)] text-[11px] font-medium rounded-md">
+                                                {tag}
+                                                <button onClick={() => handlePublishRemoveTag(tag)} className="text-[var(--text-dimmed)] hover:text-red-400 transition-colors">
+                                                    <FontAwesomeIcon icon={faXmark} className="w-2 h-2" />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        value={publishTagInput}
+                                        onChange={e => setPublishTagInput(e.target.value)}
+                                        onKeyDown={handlePublishTagKeyDown}
+                                        placeholder="Add a tag and press Enter..."
+                                        className="flex-1 h-10 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl px-3.5 text-[12px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                                    />
+                                    <button onClick={handlePublishAddTag} className="h-10 px-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-muted)] text-[12px] font-medium hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors">
+                                        Add
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* YAML Configuration */}
+                            <div className="space-y-2">
+                                <label className="text-[11px] font-bold text-[var(--text-dimmed)] uppercase tracking-wider">YAML Configuration *</label>
+                                <textarea
+                                    value={publishData.yamlContent}
+                                    onChange={e => setPublishData({ ...publishData, yamlContent: e.target.value })}
+                                    className="w-full h-48 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl p-3.5 text-[12px] font-mono text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] resize-none transition-colors leading-relaxed"
+                                    placeholder={"version: 1\nname: my-os\ndistro:\n  base: alpine\npackages:\n  - nodejs\n  - npm\nusers:\n  - name: admin\n    password: changeme"}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-6 py-4 border-t border-[var(--border-secondary)] flex items-center justify-between">
+                            <div className="text-[11px] text-[var(--text-dimmed)]">
+                                {publishData.name && publishData.yamlContent ? "Ready to publish" : "Fill in required fields (*)"}
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setShowPublishDialog(false)} className="px-4 py-2.5 text-[13px] font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors rounded-xl hover:bg-[var(--bg-secondary)]">
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handlePublishOS}
+                                    disabled={actionLoading === "publish" || !publishData.name || !publishData.yamlContent}
+                                    className="px-6 py-2.5 bg-[var(--accent)] rounded-xl text-[13px] font-bold text-white hover:bg-[var(--accent-hover)] transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    {actionLoading === "publish" ? <Spinner className="h-4 w-4" /> : (
+                                        <>
+                                            <FontAwesomeIcon icon={faCircleCheck} className="w-3.5 h-3.5" />
+                                            Publish Official OS
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

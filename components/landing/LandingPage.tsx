@@ -5,8 +5,9 @@ import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faServer, faCode, faBrain, faDatabase, faHandshake, faMobileScreen, faSun, faMoon, faChevronDown, faGear, faRightFromBracket } from "@fortawesome/free-solid-svg-icons";
+import { faSun, faMoon, faChevronDown, faGear, faRightFromBracket, faDownload } from "@fortawesome/free-solid-svg-icons";
 import { useSession, signOut } from "@/lib/auth-client";
+import { getIcon } from "@/lib/icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 
 // Local assets (downloaded from Figma)
@@ -24,6 +25,8 @@ const imgOverlay = "/assets/icon-shield-verified.svg";
 export default function LandingPage() {
   const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [featuredOS, setFeaturedOS] = useState<any[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
   const { theme, setTheme, systemTheme } = useTheme();
   const { data: session, isPending } = useSession();
@@ -31,6 +34,12 @@ export default function LandingPage() {
 
   useEffect(() => {
     setMounted(true);
+    fetch("/api/registry?limit=6")
+      .then(res => res.json())
+      .then(data => {
+        if (data.packages) setFeaturedOS(data.packages);
+      })
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -93,6 +102,12 @@ export default function LandingPage() {
               >
                 <FontAwesomeIcon icon={mounted && !isDark ? faMoon : faSun} className="w-5 h-5" />
               </button>
+              <a
+                href="/llm"
+                className="font-['Space_Grotesk',sans-serif] font-medium text-[14px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              >
+              AI
+              </a>
               <a
                 href="/registry"
                 className="font-['Space_Grotesk',sans-serif] font-medium text-[14px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
@@ -188,7 +203,14 @@ export default function LandingPage() {
 
                 {/* Search bar */}
                 <div className="w-full max-w-[512px] py-2">
-                  <div className="relative h-14 w-full">
+                  <form className="relative h-14 w-full" onSubmit={(e) => {
+                    e.preventDefault();
+                    if (searchQuery.trim()) {
+                      router.push(`/registry?search=${encodeURIComponent(searchQuery)}`);
+                    } else {
+                      router.push("/registry");
+                    }
+                  }}>
                     {/* Search icon */}
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] z-10">
                       <img
@@ -200,9 +222,11 @@ export default function LandingPage() {
                     <input
                       type="text"
                       placeholder="Search configurations (e.g., nginx alpine server)"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full h-full backdrop-blur-sm bg-[var(--search-bg)] border border-[var(--border-primary)] rounded-full pl-12 pr-4 text-[16px] font-['Space_Grotesk',sans-serif] text-[var(--text-dimmed)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] focus:text-[var(--text-primary)] transition-colors shadow-[var(--search-shadow)]"
                     />
-                  </div>
+                  </form>
                 </div>
 
                 {/* CTA Buttons */}
@@ -443,7 +467,7 @@ export default function LandingPage() {
                       <span className="text-[var(--code-text)] transition-colors duration-300">: </span>
                       <span className="text-[var(--code-value)] transition-colors duration-300">root</span>
                       {"\n"}
-                      <span className="text-[var(--code-text)] transition-colors duration-300">    </span>
+                      <span className="text-[var(--code-text)] transition-colors duration-300">  - </span>
                       <span className="text-[var(--code-key)] transition-colors duration-300">password</span>
                       <span className="text-[var(--code-text)] transition-colors duration-300">: </span>
                       <span className="text-[var(--code-value)] transition-colors duration-300">toor</span>
@@ -453,7 +477,7 @@ export default function LandingPage() {
                       <span className="text-[var(--code-text)] transition-colors duration-300">: </span>
                       <span className="text-[var(--code-value)] transition-colors duration-300">talfaza</span>
                       {"\n"}
-                      <span className="text-[var(--code-text)] transition-colors duration-300">    </span>
+                      <span className="text-[var(--code-text)] transition-colors duration-300">  - </span>
                       <span className="text-[var(--code-key)] transition-colors duration-300">password</span>
                       <span className="text-[var(--code-text)] transition-colors duration-300">: </span>
                       <span className="text-[var(--code-value)] transition-colors duration-300">securepassword</span>
@@ -546,134 +570,68 @@ export default function LandingPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {[
-                  {
-                    name: "web-server",
-                    base: "Alpine Based",
-                    desc: "Optimized for high-performance Nginx/Apache for web traffic.",
-                    downloads: "5.1k",
-                    stars: "3k",
-                    tags: ["OFFICIAL", "Nginx", "Server"],
-                    icon: faServer,
-                    iconColor: "#22c55e",
-                  },
-                  {
-                    name: "java-dev-environment",
-                    base: "Alpine Based",
-                    desc: "Pre-configured JDK, Maven, and popular IDEs.",
-                    downloads: "5.1k",
-                    stars: "2k",
-                    tags: ["OFFICIAL", "Java", "Dev"],
-                    icon: faCode,
-                    iconColor: "#a855f7",
-                  },
-                  {
-                    name: "ml-workstation",
-                    base: "Fedora Based",
-                    desc: "CUDA-ready with Python and ML frameworks.",
-                    downloads: "4.7k",
-                    stars: "2k",
-                    tags: ["OFFICIAL", "ML", "Python"],
-                    icon: faBrain,
-                    iconColor: "#3b82f6",
-                  },
-                  {
-                    name: "databases",
-                    base: "Alpine Based",
-                    desc: "A Linux distro pre-loaded with PostgreSQL, MySQL, and Redis.",
-                    downloads: "3.8k",
-                    stars: "1.5k",
-                    tags: ["OFFICIAL", "SQL", "Redis"],
-                    icon: faDatabase,
-                    iconColor: "#22c55e",
-                  },
-                  {
-                    name: "distrorun-contributes",
-                    base: "Fedora Based",
-                    desc: "A Fedora-based environment specifically for contributing to DistroRun.",
-                    downloads: "1.2k",
-                    stars: "800",
-                    tags: ["OFFICIAL", "IDE"],
-                    icon: faHandshake,
-                    iconColor: "#a855f7",
-                  },
-                  {
-                    name: "mobile-dev-env",
-                    base: "Fedora Based",
-                    desc: "Set up for Android/iOS development tools.",
-                    downloads: "4.2k",
-                    stars: "1.7k",
-                    tags: ["Mobile", "App"],
-                    icon: faMobileScreen,
-                    iconColor: "#22c55e",
-                  },
-                ].map((entry) => (
-                  <div
-                    key={entry.name}
-                    className="backdrop-blur-md bg-[var(--bg-card)] border border-[var(--border-secondary)] rounded-2xl p-5 flex flex-col gap-3 hover:border-[var(--accent)]/50 transition-colors cursor-pointer group"
-                  >
-                    {/* Header: icon + stats */}
-                    <div className="flex items-start justify-between">
-                      <div
-                        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: `${entry.iconColor}20`, border: `1px solid ${entry.iconColor}40` }}
-                      >
-                        <FontAwesomeIcon
-                          icon={entry.icon as IconDefinition}
-                          className="w-4 h-4"
-                          style={{ color: entry.iconColor }}
-                        />
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-dimmed)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                          </svg>
-                          <span className="font-['Space_Grotesk',sans-serif] text-[12px] text-[var(--text-dimmed)]">
-                            {entry.stars}
-                          </span>
+                {featuredOS.map((entry) => {
+                  const iconColor = entry.icon_color || "var(--accent)";
+                  const tags = entry.tags || [];
+                  return (
+                    <Link
+                      href={`/registry/${entry.name}`}
+                      key={entry.id}
+                      className="backdrop-blur-md bg-[var(--bg-card)] border border-[var(--border-secondary)] rounded-2xl p-5 flex flex-col gap-3 hover:border-[var(--accent)]/50 transition-colors cursor-pointer group"
+                    >
+                      {/* Header: icon + downloads */}
+                      <div className="flex items-start justify-between">
+                        <div
+                          className="w-10 h-10 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-secondary)] flex items-center justify-center shrink-0"
+                        >
+                          <FontAwesomeIcon
+                            icon={getIcon(entry.icon)}
+                            className="w-4 h-4"
+                            style={{ color: iconColor }}
+                          />
                         </div>
                         <div className="flex items-center gap-1">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-dimmed)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                          </svg>
+                          <FontAwesomeIcon icon={faDownload} className="w-3 h-3 text-[var(--text-dimmed)]" />
                           <span className="font-['Space_Grotesk',sans-serif] text-[12px] text-[var(--text-dimmed)]">
                             {entry.downloads}
                           </span>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Name + base */}
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-['Space_Grotesk',sans-serif] font-bold text-[16px] text-[var(--text-primary)] group-hover:text-[#60a5fa] transition-colors">
-                        {entry.name}
-                      </span>
-                      <span className="font-['Space_Grotesk',sans-serif] text-[12px] text-[var(--text-dimmed)]">
-                        {entry.base}
-                      </span>
-                    </div>
-
-                    {/* Description */}
-                    <p className="font-['Space_Grotesk',sans-serif] font-normal text-[var(--text-muted)] text-[13px] leading-5">
-                      {entry.desc}
-                    </p>
-
-                    {/* Tags */}
-                    <div className="flex flex-wrap gap-1.5 mt-auto">
-                      {entry.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="text-[11px] font-['Space_Grotesk',sans-serif] font-medium px-2.5 py-1 rounded-full bg-[var(--tag-bg)] text-[var(--accent)] border border-[var(--tag-border)]"
-                        >
-                          {tag}
+                      {/* Name + base */}
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-['Space_Grotesk',sans-serif] font-bold text-[16px] text-[var(--text-primary)] group-hover:text-[#60a5fa] transition-colors">
+                          {entry.name}
                         </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                        <span className="font-['Space_Grotesk',sans-serif] text-[12px] text-[var(--text-dimmed)] capitalize">
+                          {entry.base_distro || "alpine"} Based
+                        </span>
+                      </div>
+
+                      {/* Description */}
+                      <p className="font-['Space_Grotesk',sans-serif] font-normal text-[var(--text-muted)] text-[13px] leading-5 line-clamp-2">
+                        {entry.description}
+                      </p>
+
+                      {/* Tags */}
+                      <div className="flex flex-wrap gap-1.5 mt-auto">
+                        {entry.official && (
+                          <span className="text-[11px] font-['Space_Grotesk',sans-serif] font-medium px-2.5 py-1 rounded-full bg-[var(--tag-bg)] text-[var(--accent)] border border-[var(--tag-border)]">
+                            OFFICIAL
+                          </span>
+                        )}
+                        {tags.slice(0, 3).map((tag: string) => (
+                          <span
+                            key={tag}
+                            className="text-[11px] font-['Space_Grotesk',sans-serif] font-medium px-2.5 py-1 rounded-full bg-[var(--tag-bg)] text-[var(--accent)] border border-[var(--tag-border)]"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </section>
 

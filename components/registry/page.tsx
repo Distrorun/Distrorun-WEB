@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useSession, signOut } from "@/lib/auth-client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -27,6 +27,7 @@ import {
   faRightFromBracket,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
+import { getIcon } from "@/lib/icons";
 
 // --- Types ---
 type StatusType = "OFFICIAL" | "COMMUNITY";
@@ -39,52 +40,15 @@ interface RegistryItem {
   downloads: string;
   tags: string[];
   icon: any;
+  official?: boolean;
+  user_name?: string;
 }
-
-// --- Mock Data ---
-const MOCK_DATA: RegistryItem[] = [
-  {
-    id: "1",
-    title: "Node OS",
-    description: "Minimalist NodeJS Os",
-    status: "OFFICIAL",
-    downloads: "2.4M",
-    tags: ["Alpine Based", "Node.js", "Web"],
-    icon: faCube,
-  },
-  {
-    id: "2",
-    title: "Databases",
-    description: "OS with all of the popular databases",
-    status: "COMMUNITY",
-    downloads: "892k",
-    tags: ["Fedora Based", "Database", "Workstation"],
-    icon: faDatabase,
-  },
-  {
-    id: "3",
-    title: "ML-Workstation",
-    description: "Deep learning environment with PyTorch, CUDA 12.1 drivers, and JupyterLab ready to...",
-    status: "OFFICIAL",
-    downloads: "156k",
-    tags: ["Fedora Based", "ML/AI", "Python"],
-    icon: faBrain,
-  },
-  {
-    id: "4",
-    title: "Dev Toolkit OS",
-    description: "Coding OS",
-    status: "COMMUNITY",
-    downloads: "54k",
-    tags: ["Fedora Based", "DevTools", "CLI"],
-    icon: faTerminal,
-  },
-];
 
 export default function RegistryPage() {
   const { data: session, isPending } = useSession();
   const router = useRouter();
-  const [keyword, setKeyword] = useState("");
+  const searchParams = useSearchParams();
+  const [keyword, setKeyword] = useState(searchParams.get("search") || "");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -96,9 +60,26 @@ export default function RegistryPage() {
   const [baseDistro, setBaseDistro] = useState({ alpine: false, fedora: false });
   const [categories, setCategories] = useState({ webServers: false, databases: false, ml: false, devTools: false });
   const [statusFilter, setStatusFilter] = useState({ official: false, community: false, experimental: false });
+  const [packages, setPackages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset to first page when search criteria change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [keyword, baseDistro, categories, statusFilter]);
 
   useEffect(() => {
     setMounted(true);
+    fetch("/api/registry?limit=1000")
+      .then(res => res.json())
+      .then(data => {
+        if (data.packages) {
+          setPackages(data.packages);
+        }
+        setLoading(false);
+      })
+      .catch(console.error);
   }, []);
 
   // Close menu on outside click
@@ -133,7 +114,15 @@ export default function RegistryPage() {
           <FontAwesomeIcon icon={faSlidersH} className="text-[var(--accent)] w-[14px] h-[14px]" />
           Filters
         </div>
-        <button className="text-[12px] font-medium text-[var(--accent)] hover:opacity-80 transition-colors">
+        <button
+          onClick={() => {
+            setKeyword("");
+            setBaseDistro({ alpine: false, fedora: false });
+            setCategories({ webServers: false, databases: false, ml: false, devTools: false });
+            setStatusFilter({ official: false, community: false, experimental: false });
+          }}
+          className="text-[12px] font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
+        >
           RESET
         </button>
       </div>
@@ -173,7 +162,7 @@ export default function RegistryPage() {
               </div>
               <span className="text-[13px] text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">Alpine Based</span>
             </div>
-            <span className="text-[10px] font-medium bg-[var(--bg-secondary)] text-[var(--text-muted)] px-2 py-0.5 rounded-md">128</span>
+            <span className="text-[10px] font-medium bg-[var(--bg-secondary)] text-[var(--text-muted)] px-2 py-0.5 rounded-md">{packages.filter(p => p.base_distro === "alpine").length}</span>
             <input type="checkbox" className="hidden" checked={baseDistro.alpine} onChange={(e) => setBaseDistro({ ...baseDistro, alpine: e.target.checked })} />
           </label>
           <label className="flex items-center justify-between cursor-pointer group">
@@ -183,7 +172,7 @@ export default function RegistryPage() {
               </div>
               <span className="text-[13px] text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">Fedora Based</span>
             </div>
-            <span className="text-[10px] font-medium bg-[var(--bg-secondary)] text-[var(--text-muted)] px-2 py-0.5 rounded-md">56</span>
+            <span className="text-[10px] font-medium bg-[var(--bg-secondary)] text-[var(--text-muted)] px-2 py-0.5 rounded-md">{packages.filter(p => p.base_distro === "fedora").length}</span>
             <input type="checkbox" className="hidden" checked={baseDistro.fedora} onChange={(e) => setBaseDistro({ ...baseDistro, fedora: e.target.checked })} />
           </label>
         </div>
@@ -234,7 +223,7 @@ export default function RegistryPage() {
         <div className="space-y-3">
           {[
             { key: "official" as const, label: "Official" },
-            { key: "community" as const, label: "Community Verified" },
+            { key: "community" as const, label: "Community" },
             { key: "experimental" as const, label: "Experimental" },
           ].map(s => (
             <label key={s.key} className="flex items-center gap-3 cursor-pointer group">
@@ -249,6 +238,34 @@ export default function RegistryPage() {
       </div>
     </div>
   );
+
+  // Pagination Logic
+  const hasStatusFilter = statusFilter.official || statusFilter.community || statusFilter.experimental;
+
+  const filteredPackages = packages.filter((item) => {
+    const title = item.name || "";
+    const desc = item.description || "";
+    if (keyword && !title.toLowerCase().includes(keyword.toLowerCase()) && !desc.toLowerCase().includes(keyword.toLowerCase())) return false;
+
+    if (hasStatusFilter) {
+      const isOfficial = !!item.official;
+      if (statusFilter.official && !isOfficial) return false;
+      if (statusFilter.community && isOfficial) return false;
+    }
+
+    const itemTags = item.tags || [];
+    if (baseDistro.alpine && item.base_distro !== "alpine") return false;
+    if (baseDistro.fedora && item.base_distro !== "fedora") return false;
+    if (categories.webServers && !itemTags.some((t: string) => t.toLowerCase() === "web")) return false;
+    if (categories.databases && !itemTags.some((t: string) => t.toLowerCase().includes("data"))) return false;
+    if (categories.ml && !itemTags.some((t: string) => t.toLowerCase().includes("ml") || t.toLowerCase().includes("ai"))) return false;
+    if (categories.devTools && !itemTags.some((t: string) => t.toLowerCase().includes("dev"))) return false;
+    return true;
+  });
+
+  const ITEMS_PER_PAGE = 4;
+  const totalPages = Math.max(1, Math.ceil(filteredPackages.length / ITEMS_PER_PAGE));
+  const currentPackages = filteredPackages.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   return (
     <div
@@ -276,6 +293,8 @@ export default function RegistryPage() {
             </div>
             <input
               type="text"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
               placeholder="Search registry..."
               className="w-full h-10 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg pl-10 pr-4 text-[14px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors"
             />
@@ -285,7 +304,7 @@ export default function RegistryPage() {
           <div className="ml-auto flex items-center gap-3 md:gap-6">
             <nav className="hidden md:flex items-center gap-6 text-[14px] font-medium text-[var(--text-muted)]">
               <Link href="/llm" className="hover:text-[var(--text-primary)] transition-colors flex items-center gap-1.5">
-                AI Generator
+                AI
               </Link>
               <Link href="http://localhost:8000" className="hover:text-[var(--text-primary)] transition-colors">
                 Docs
@@ -373,6 +392,8 @@ export default function RegistryPage() {
           </div>
           <input
             type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
             placeholder="Search registry..."
             className="w-full h-10 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg pl-10 pr-4 text-[14px] text-[var(--text-primary)] placeholder-[var(--text-dimmed)] focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
@@ -431,110 +452,148 @@ export default function RegistryPage() {
           {/* Glowing background blob behind the list */}
           <div className="absolute top-10 left-1/4 w-[500px] h-[500px] bg-[var(--accent)]/5 rounded-full blur-[100px] pointer-events-none" />
 
-          {/* List */}
-          <div className={`relative z-10 ${viewMode === 'list' ? 'space-y-4' : 'grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6'}`}>
-            {MOCK_DATA.filter((item) => {
-              if (keyword && !item.title.toLowerCase().includes(keyword.toLowerCase()) && !item.description.toLowerCase().includes(keyword.toLowerCase())) return false;
-              if (statusFilter.official && item.status !== "OFFICIAL") return false;
-              if (statusFilter.community && item.status !== "COMMUNITY") return false;
-              if (baseDistro.alpine && !item.tags.includes("Alpine Based")) return false;
-              if (baseDistro.fedora && !item.tags.includes("Fedora Based")) return false;
-              if (categories.webServers && !item.tags.includes("Web")) return false;
-              if (categories.databases && !item.tags.includes("Database")) return false;
-              if (categories.ml && !item.tags.includes("ML/AI")) return false;
-              if (categories.devTools && !item.tags.includes("DevTools")) return false;
-              return true;
-            }).map((item) => (
-              <div
-                key={item.id}
-                className={`group flex ${viewMode === 'list' ? 'flex-col sm:flex-row items-start sm:items-center justify-between p-4 md:p-6' : 'flex-col p-4 md:p-6 items-start justify-between min-h-[240px] md:min-h-[260px]'} bg-[var(--bg-card)] border border-[var(--border-secondary)] hover:border-[var(--border-accent)] rounded-[14px] transition-all duration-300 hover:shadow-[var(--shadow-card)]`}
-              >
-                {/* Left Content */}
-                <div className={`flex items-start ${viewMode === 'list' ? 'sm:items-center gap-4 md:gap-6 w-full sm:w-auto' : 'flex-col gap-4 mb-6 w-full'}`}>
-                  {/* Icon Box */}
-                  <div className="w-[48px] h-[48px] md:w-[60px] md:h-[60px] flex-shrink-0 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-[10px] md:rounded-[12px] flex items-center justify-center transform group-hover:scale-105 transition-transform duration-300">
-                    <FontAwesomeIcon icon={item.icon} className={`w-5 h-5 md:w-7 md:h-7 ${
-                      item.title === 'Node OS' ? 'text-blue-500' :
-                      item.title === 'Databases' ? 'text-purple-500' :
-                      item.title === 'ML-Workstation' ? 'text-orange-500' :
-                      'text-emerald-500'
-                    }`} />
-                  </div>
-
-                  <div className="mt-1 sm:mt-0 w-full min-w-0">
-                    <div className={`flex ${viewMode === 'list' ? 'flex-wrap items-center gap-2 md:gap-3 mb-1.5' : 'flex-wrap items-center justify-between gap-3 mb-1.5'}`}>
-                      <h3 className="text-[15px] md:text-[16px] font-bold text-[var(--text-primary)]">{item.title}</h3>
-                      {item.status === 'OFFICIAL' ? (
-                        <div className="flex items-center gap-1.5 px-2 md:px-2.5 py-0.5 md:py-1 bg-[var(--passed-bg)] border border-[var(--passed-border)] text-emerald-600 dark:text-emerald-400 text-[9px] md:text-[10px] font-extrabold tracking-widest rounded-full">
-                          <FontAwesomeIcon icon={faCheckCircle} className="w-[9px] h-[9px] md:w-[10px] md:h-[10px]" />
-                          OFFICIAL
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 px-2 md:px-2.5 py-0.5 md:py-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-dimmed)] text-[9px] md:text-[10px] font-extrabold tracking-widest rounded-full">
-                          <FontAwesomeIcon icon={faUsers} className="w-[9px] h-[9px] md:w-[10px] md:h-[10px]" />
-                          COMMUNITY
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-[12px] md:text-[13px] text-[var(--text-muted)] mb-3 line-clamp-2 pr-0 md:pr-4">{item.description}</p>
-
-                    {/* Tags */}
-                    <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
-                      {item.tags.map(tag => (
-                        <span key={tag} className="px-2 md:px-2.5 py-0.5 md:py-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-muted)] text-[10px] md:text-[11px] rounded-md whitespace-nowrap">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Content */}
-                <div className={`flex ${viewMode === 'list' ? 'flex-row sm:flex-col items-center sm:items-end gap-3 mt-4 sm:mt-0 ml-0 sm:ml-4 w-full sm:w-auto justify-between sm:justify-start' : 'flex-row items-center justify-between w-full mt-auto pt-4 border-t border-[var(--border-secondary)]'}`}>
-                  <div className={`flex ${viewMode === 'list' ? 'flex-row sm:flex-col items-center sm:items-end gap-1.5 sm:mr-2' : 'flex-row items-center gap-2'}`}>
-                    <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold text-[13px] md:text-[14px]">
-                      <FontAwesomeIcon icon={faDownload} className="w-3 h-3 text-[var(--accent)]" />
-                      {item.downloads}
-                    </div>
-                    <span className="text-[9px] md:text-[10px] text-[var(--text-dimmed)] font-bold uppercase tracking-wider">Downloads</span>
-                  </div>
-                  <Link
-                    href={`/registry/${item.id}`}
-                    className="px-4 md:px-6 py-2 bg-transparent hover:bg-[var(--accent)]/10 border border-[var(--border-secondary)] hover:border-[var(--accent)]/50 text-[var(--accent)] text-[12px] md:text-[13px] font-semibold text-center rounded-[8px] transition-all duration-300 whitespace-nowrap"
+          {loading ? (
+            <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--accent)]"></div></div>
+          ) : packages.length === 0 ? (
+            <div className="text-center p-12 text-[var(--text-muted)]">No distrobution found.</div>
+          ) : filteredPackages.length === 0 ? (
+            <div className="text-center p-12 text-[var(--text-muted)]">No distrobution match your filters.</div>
+          ) : (
+            <div className={`relative z-10 ${viewMode === 'list' ? 'space-y-4' : 'grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6'}`}>
+              {currentPackages.map((item) => {
+                const icon = getIcon(item.icon);
+                const status = item.official ? "OFFICIAL" : "COMMUNITY";
+                const itemTags = item.tags || [];
+                return (
+                  <div
+                    key={item.id}
+                    className={`group flex ${viewMode === 'list' ? 'flex-col sm:flex-row items-start sm:items-center justify-between p-4 md:p-6' : 'flex-col p-4 md:p-6 items-start justify-between min-h-[240px] md:min-h-[260px]'} bg-[var(--bg-card)] border border-[var(--border-secondary)] hover:border-[var(--border-accent)] rounded-[14px] transition-all duration-300 hover:shadow-[var(--shadow-card)]`}
                   >
-                    View Details
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
+                    {/* Left Content */}
+                    <div className={`flex items-start ${viewMode === 'list' ? 'sm:items-center gap-4 md:gap-6 w-full sm:w-auto' : 'flex-col gap-4 mb-6 w-full'}`}>
+                      <div className="w-[48px] h-[48px] md:w-[60px] md:h-[60px] flex-shrink-0 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-[10px] md:rounded-[12px] flex items-center justify-center transform group-hover:scale-105 transition-transform duration-300">
+                        <FontAwesomeIcon icon={icon} className="w-5 h-5 md:w-7 md:h-7" style={{ color: item.icon_color || 'var(--accent)' }} />
+                      </div>
+
+                      <div className="mt-1 sm:mt-0 w-full min-w-0">
+                        <div className={`flex ${viewMode === 'list' ? 'flex-wrap items-center gap-2 md:gap-3 mb-1.5' : 'flex-wrap items-center justify-between gap-3 mb-1.5'}`}>
+                          <h3 className="text-[15px] md:text-[16px] font-bold text-[var(--text-primary)]">{item.name}</h3>
+                          {status === 'OFFICIAL' ? (
+                            <div className="flex items-center gap-1.5 px-2 md:px-2.5 py-0.5 md:py-1 bg-[var(--passed-bg)] border border-[var(--passed-border)] text-emerald-600 dark:text-emerald-400 text-[9px] md:text-[10px] font-extrabold tracking-widest rounded-full">
+                              <FontAwesomeIcon icon={faCheckCircle} className="w-[9px] h-[9px] md:w-[10px] md:h-[10px]" />
+                              OFFICIAL
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 px-2 md:px-2.5 py-0.5 md:py-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-dimmed)] text-[9px] md:text-[10px] font-extrabold tracking-widest rounded-full">
+                              <FontAwesomeIcon icon={faUsers} className="w-[9px] h-[9px] md:w-[10px] md:h-[10px]" />
+                              COMMUNITY
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-[12px] md:text-[13px] text-[var(--text-muted)] mb-3 line-clamp-2 pr-0 md:pr-4">{item.description}</p>
+
+                        {/* Tags */}
+                        <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+                          <span className="px-2 md:px-2.5 py-0.5 md:py-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--accent)] text-[10px] md:text-[11px] rounded-md whitespace-nowrap capitalize font-medium">
+                            {item.base_distro} Based
+                          </span>
+                          {itemTags.map((tag: string) => (
+                            <span key={tag} className="px-2 md:px-2.5 py-0.5 md:py-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-muted)] text-[10px] md:text-[11px] rounded-md whitespace-nowrap">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Author */}
+                        <div className="flex items-center gap-1.5 mt-4">
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Content */}
+                    <div className={`flex ${viewMode === 'list' ? 'flex-row sm:flex-col items-center sm:items-end gap-3 mt-4 sm:mt-0 ml-0 sm:ml-4 w-full sm:w-auto justify-between sm:justify-start' : 'flex-row items-center justify-between w-full mt-auto pt-4 border-t border-[var(--border-secondary)]'}`}>
+                      <div className={`flex ${viewMode === 'list' ? 'flex-row sm:flex-col items-center sm:items-end gap-1.5 sm:mr-2' : 'flex-row items-center gap-2'}`}>
+                        <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold text-[13px] md:text-[14px]">
+                          <FontAwesomeIcon icon={faDownload} className="w-3 h-3 text-[var(--accent)]" />
+                          {item.downloads}
+                        </div>
+                        <span className="text-[9px] md:text-[10px] text-[var(--text-dimmed)] font-bold uppercase tracking-wider">Downloads</span>
+                      </div>
+                      <Link
+                        href={`/registry/${item.name}`}
+                        className="px-4 md:px-6 py-2 bg-transparent hover:bg-[var(--accent)]/10 border border-[var(--border-secondary)] hover:border-[var(--accent)]/50 text-[var(--accent)] text-[12px] md:text-[13px] font-semibold text-center rounded-[8px] transition-all duration-300 whitespace-nowrap"
+                      >
+                        View Details
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Pagination Controls */}
-          <div className="mt-8 md:mt-12 flex justify-center">
-            <div className="flex items-center gap-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] p-1 rounded-xl">
-              <button className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-dimmed)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
-                <FontAwesomeIcon icon={faChevronLeft} className="w-3 h-3" />
-              </button>
-              <button className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center bg-[var(--accent)] text-white font-medium text-[12px] md:text-[13px] rounded-lg transition-colors">
-                1
-              </button>
-              <button className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] font-medium text-[12px] md:text-[13px] rounded-lg transition-colors">
-                2
-              </button>
-              <button className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] font-medium text-[12px] md:text-[13px] rounded-lg transition-colors hidden sm:flex">
-                3
-              </button>
-              <span className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-dimmed)] tracking-widest text-[11px] md:text-[12px]">
-                ...
-              </span>
-              <button className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] font-medium text-[12px] md:text-[13px] rounded-lg transition-colors">
-                12
-              </button>
-              <button className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-dimmed)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
-                <FontAwesomeIcon icon={faChevronRight} className="w-3 h-3" />
-              </button>
+          {totalPages > 1 && (
+            <div className="mt-8 md:mt-12 flex justify-center">
+              <div className="flex items-center gap-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] p-1 rounded-xl">
+                <button
+                  onClick={() => {
+                    setCurrentPage(p => Math.max(1, p - 1));
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  disabled={currentPage === 1}
+                  className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-dimmed)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors">
+                  <FontAwesomeIcon icon={faChevronLeft} className="w-3 h-3" />
+                </button>
+
+                {[...Array(totalPages)].map((_, i) => {
+                  const pageNum = i + 1;
+                  // Only show a few pages around the current page
+                  if (
+                    pageNum === 1 ||
+                    pageNum === totalPages ||
+                    (pageNum >= currentPage - 1 && pageNum <= currentPage + 1)
+                  ) {
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => {
+                          setCurrentPage(pageNum);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className={`w-8 h-8 md:w-9 md:h-9 flex items-center justify-center font-medium text-[12px] md:text-[13px] rounded-lg transition-colors ${currentPage === pageNum
+                            ? "bg-[var(--accent)] text-white"
+                            : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                          }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  } else if (
+                    pageNum === currentPage - 2 ||
+                    pageNum === currentPage + 2
+                  ) {
+                    return (
+                      <span key={pageNum} className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-dimmed)] tracking-widest text-[11px] md:text-[12px]">
+                        ...
+                      </span>
+                    );
+                  }
+                  return null;
+                })}
+
+                <button
+                  onClick={() => {
+                    setCurrentPage(p => Math.min(totalPages, p + 1));
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  disabled={currentPage === totalPages}
+                  className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-[var(--text-dimmed)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors">
+                  <FontAwesomeIcon icon={faChevronRight} className="w-3 h-3" />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
         </main>
       </div>

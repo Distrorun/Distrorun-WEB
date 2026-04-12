@@ -25,6 +25,7 @@ import {
     faBars,
     faXmark,
     faComment,
+    faPen,
 } from "@fortawesome/free-solid-svg-icons";
 
 // --- Types ---
@@ -119,6 +120,8 @@ export default function LLMPage() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
     const [loadingConvs, setLoadingConvs] = useState(true);
+    const [editingConvId, setEditingConvId] = useState<string | null>(null);
+    const [editTitle, setEditTitle] = useState("");
 
     useEffect(() => { setMounted(true); }, []);
 
@@ -219,6 +222,25 @@ export default function LLMPage() {
                 setMessages([]);
             }
         } catch { /* ignore */ }
+    };
+
+    // Rename a conversation
+    const renameConversation = async (convId: string) => {
+        if (!editTitle.trim()) {
+            setEditingConvId(null);
+            return;
+        }
+        try {
+            const res = await fetch(`/api/conversations/${convId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: editTitle }),
+            });
+            if (res.ok) {
+                setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: editTitle } : c));
+            }
+        } catch { /* ignore */ }
+        setEditingConvId(null);
     };
 
     // Start a new chat
@@ -477,17 +499,69 @@ export default function LLMPage() {
                             <div
                                 key={conv.id}
                                 className={`group flex items-center gap-2 mx-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${activeConvId === conv.id ? "bg-[var(--accent)]/10 text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"}`}
-                                onClick={() => loadConversation(conv.id)}
+                                onClick={() => {
+                                    if (editingConvId !== conv.id) loadConversation(conv.id);
+                                }}
                             >
                                 <FontAwesomeIcon icon={faComment} className="w-3 h-3 flex-shrink-0 opacity-50" />
-                                <span className="flex-1 text-[13px] truncate">{conv.title || "New Chat"}</span>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
-                                    className="w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 text-[var(--text-dimmed)] hover:text-red-400 transition-all"
-                                    title="Delete"
-                                >
-                                    <FontAwesomeIcon icon={faTrash} className="w-2.5 h-2.5" />
-                                </button>
+                                {editingConvId === conv.id ? (
+                                    <input
+                                        type="text"
+                                        value={editTitle}
+                                        onChange={(e) => setEditTitle(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                renameConversation(conv.id);
+                                            } else if (e.key === "Escape") {
+                                                setEditingConvId(null);
+                                            }
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        autoFocus
+                                        className="flex-1 text-[13px] bg-transparent border-b border-[var(--accent)] outline-none text-[var(--text-primary)] min-w-0"
+                                    />
+                                ) : (
+                                    <span className="flex-1 text-[13px] truncate">{conv.title || "New Chat"}</span>
+                                )}
+
+                                {editingConvId === conv.id ? (
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); renameConversation(conv.id); }}
+                                            className="w-5 h-5 rounded flex items-center justify-center text-green-400 hover:bg-green-400/10 transition-all"
+                                        >
+                                            <FontAwesomeIcon icon={faCheck} className="w-2.5 h-2.5" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setEditingConvId(null); }}
+                                            className="w-5 h-5 rounded flex items-center justify-center text-[var(--text-dimmed)] hover:text-red-400 hover:bg-red-400/10 transition-all"
+                                        >
+                                            <FontAwesomeIcon icon={faXmark} className="w-2.5 h-2.5" />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setEditTitle(conv.title || "New Chat");
+                                                setEditingConvId(conv.id);
+                                            }}
+                                            className="w-6 h-6 rounded flex items-center justify-center text-[var(--text-dimmed)] hover:text-[var(--text-primary)] transition-all"
+                                            title="Rename"
+                                        >
+                                            <FontAwesomeIcon icon={faPen} className="w-2.5 h-2.5" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
+                                            className="w-6 h-6 rounded flex items-center justify-center text-[var(--text-dimmed)] hover:text-red-400 transition-all"
+                                            title="Delete"
+                                        >
+                                            <FontAwesomeIcon icon={faTrash} className="w-2.5 h-2.5" />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         ))
                     )}
